@@ -1,0 +1,454 @@
+---
+title: "Bibliometric Analysis of Global Research on Premature Mortality"
+author: "Wan Shakira Rodzlan Hasani"
+date: '2022-03-31'
+output:
+  word_document: default
+  pdf_document: default
+  html_document: default
+---
+
+## References
+
+https://www.bibliometrix.org/vignettes/Introduction_to_bibliometrix.html 
+https://www.bibliometrix.org/vignettes/Data-Importing-and-Converting.html
+
+
+# Bibliometrix installation
+
+Installs & load bibliometrix package and dependencies
+
+```{r}
+#install.packages("bibliometrix", dependencies = TRUE)
+
+library(bibliometrix)
+
+```
+
+Other package
+
+```{r}
+#install.packages("tidyverse")
+
+## Load packages 
+library(tidyverse)
+```
+
+## Set working directory 
+```{r}
+setwd("C:/Users/shakirarodzlan/Desktop/PhD/PhD Chapters/Chapter 1- Bibliometric analysis/WOS biblio/search 29Mac22- 1082")
+```
+
+# Data loading and converting
+
+The export file can be read and converted using by R using the function convert2df:
+
+convert2df(file, dbsource, format)
+
+convert2df creates a bibliographic data frame with cases corresponding to manuscripts and variables to Field Tag in the original export file.mconvert2df accepts two additional arguments: dbsource and format. The argument dbsource indicates from which database the collection has been downloaded. It can be:
+
+  “isi” or “wos” (for Clarivate Analytics Web of Science database),
+  “scopus” (for SCOPUS database),
+  “pubmed” (for PubMed/Medline database),
+  “cochrane” (for Cochrane Library database of systematic reviews).
+
+The argument format indicates the file format of the imported collection. It can be “plaintext” or “bibtex” for WOS collection and mandatorily “bibtext” for SCOPUS collection. The argument is ignored if the collection comes from Pubmed or Cochrane.
+
+
+Note: The WoS platform permits to export only 500 records at a time. 
+Final screened metadata for this study = 1,082. We split the selected articles into multiple files. So we have 3 separate files downloded from wos (named as wos1, wos2, wos3)
+
+```{r}
+
+## Get path to he bib files
+file_bib <- list.files(path = getwd(), pattern = "*.bib", full.names = T)
+
+
+## Read one by one 
+pm_wo1 <- convert2df(file = "wos1.bib", dbsource = "wos", format = "bibtex") 
+pm_wo2 <- convert2df(file = "wos2.bib", dbsource = "wos", format = "bibtex")
+pm_wo3 <- convert2df(file = "wos3.bib", dbsource = "wos", format = "bibtex")
+
+
+##combine
+pm <- 
+  pm_wo1 %>% 
+  bind_rows(pm_wo2) %>% 
+  bind_rows(pm_wo3)
+
+```
+*note: "pm" refer to premature mortality
+
+# Data Cleaning (missing data & duplicate)
+
+## Check missing value
+
+```{r}
+pm %>% 
+  select(TI, AB) %>% 
+  summarise(TI = sum(is.na(TI)), AB = sum(is.na(AB)))
+
+pm %>% 
+  filter(is.na(AB)) %>% 
+  select(TI, AB) %>% 
+  slice(1:5) 
+
+```
+
+Result showed no missing for title but 90 missing for abstract
+
+## Check duplicate
+```{r}
+pm %>% 
+  select(TI, AB) %>%
+  summarise(TI = sum(duplicated(TI)), AB = sum(duplicated(AB)))
+
+## Extract all duplicates - TI
+pm[duplicated(pm$TI) | duplicated(pm$TI, fromLast = T), "TI"] %>% 
+  head()
+## Extract 5 duplicate only - AB
+pm[duplicated(pm$AB), "TI"] %>% 
+  head(5)
+```
+Because R treat missing for abstract as duplicate, so I run duplicate ignore missing value for abstract 
+
+```{r}
+#check duplicate ignore NA (missing) - Because R detect NA as duplicate
+
+dup_TI <- duplicated(pm$TI, incomparables=NA)
+sum(dup_TI)
+
+dup_ab <- duplicated(pm$AB, incomparables=NA)
+sum(dup_ab)
+
+
+
+```
+after ignore the missing value, the result shows 1 duplicate for title and 0 duplicate for abstract. 
+So we need to remove 1 duplicate from Title
+
+## Remove duplicate
+
+```{r}
+pm2<-pm[!duplicated(pm$TI, incomparables = NA),]
+
+```
+
+After removed 1 duplicate from Title, our final data is n= 1,081 
+
+# Bibliometric Analysis 
+
+The first step is to perform a descriptive analysis of the bibliographic data frame.
+The function biblioAnalysis calculates main bibliometric measures. 
+The function biblioAnalysis returns an object of class “bibliometrix”.
+
+# Descritpive Analysis 
+
+## Function summary
+
+To summarize main results of the bibliometric analysis, I used the generic function summary. It displays main information about the bibliographic data frame and several tables, such as annual scientific production, top manuscripts per number of citations, most productive authors, most productive countries, total citation per country, most relevant sources (journals) and most relevant keywords.
+
+Main information table describes the collection size in terms of number of documents, number of authors, number of sources, number of keywords, timespan, and average number of citations.
+
+summary accepts two additional arguments. k is a formatting value that indicates the number of rows of each table. pause is a logical value (TRUE or FALSE) used to allow (or not) pause in screen scrolling. Choosing k=10 you decide to see the first 10 Authors, the first 10 sources, etc.
+
+```{r}
+results <- biblioAnalysis(pm2, sep = ";")
+```
+
+
+
+```{r}
+options(width=100)
+S <- summary(object = results, k = 10, pause = FALSE)
+```
+
+## Plot
+
+```{r}
+plot(x = results, k = 10, pause = FALSE)
+```
+
+
+
+## Another way to run descriptive analysis (from Hanis)
+
+it give same descriptive result as above. 
+
+```{r}
+#res <- biblioAnalysis(pm2) #most of publications and citations related metrics
+#summary(res, k=10)
+
+#p <- plot(res, k=10)
+#p$MostProdAuthors
+#p$MostProdCountries
+#p$AnnualScientProd
+#p$AverArtCitperYear
+#p$AverTotCitperYear
+```
+
+
+# Analysis of Cited References
+The function citations generates the frequency table of the most cited references or the most cited first authors (of references).
+For each manuscript, cited references are in a single string stored in the column “CR” of the data frame.
+
+For a correct extraction, we need to identify the separator field among different references, used by ISI or SCOPUS database. Usually, the default separator is “;” or ".  " (a dot with double space).
+
+## Most frequent cited manuscripts
+
+```{r}
+##To obtain the most frequent cited manuscripts:
+
+CR <- citations(pm2, field = "article", sep = ";")
+cbind(CR$Cited[1:10])
+```
+
+## Most frequent cited first authors
+
+```{r}
+##To obtain the most frequent cited first authors:
+
+CR <- citations(pm2, field = "author", sep = ";")
+cbind(CR$Cited[1:10])
+```
+
+## Most frequent local cited authors
+The function local Citations generates the frequency table of the most local cited authors. Local citations measure how many times an author (or a document) included in this collection have been cited by other authors also in the collection.
+
+```{r}
+##To obtain the most frequent local cited authors:
+
+CR <- localCitations(pm2, sep = ";")
+CR$Authors[1:10,]
+CR$Papers[1:10,]
+```
+
+## Authors’ Dominance ranking
+The function dominance calculates the authors’ dominance ranking as proposed by Kumar & Kumar, 2008.
+
+Function arguments are: results (object of class bibliometrix) obtained by biblioAnalysis; and k (the number of authors to consider in the analysis).
+
+```{r}
+DF <- dominance(results, k = 10)
+DF
+```
+
+The Dominance Factor is a ratio indicating the fraction of multi-authored articles in which a scholar appears as the first author.
+
+In this result, PIKALA M dominate their research team because they appear as the first authors in 8 papers from total 19 articles.
+
+
+## Authors’ h-index
+The h-index is an author-level metric that attempts to measure both the productivity and citation impact of the publications of a scientist or scholar.
+
+The index is based on the set of the scientist’s most cited papers and the number of citations that they have received in other publications.
+
+The function Hindex calculates the authors’ H-index or the sources’ H-index and its variants (g-index and m-index) in a bibliographic collection.
+
+```{r}
+
+# To calculate the h-index of PIKALA 
+
+indices <- Hindex(pm2, field = "author", elements="PIKALA M", sep = ";", years = 10)
+indices$H
+
+# To calculate the h-index of the first 10 most productive authors (in this collection):
+
+authors=gsub(","," ",names(results$Authors)[1:10])
+indices <- Hindex(pm2, field = "author", elements=authors, sep = ";", years = 50)
+indices$H
+
+
+```
+## Top-Authors’ Productivity over the Time
+
+The function AuthorProdOverTime calculates and plots the authors’ production (in terms of number of publications, and total citations per year) over the time.
+
+```{r}
+topAU <- authorProdOverTime(pm2, k = 10, graph = TRUE)
+```
+
+
+# Lotka’s Law coefficient estimation
+
+The function lotka estimates Lotka’s law coefficients for scientific productivity (Lotka A.J., 1926). Lotka’s law describes the frequency of publication by authors in any given field as an inverse square law, where the number of authors publishing a certain number of articles is a fixed ratio to the number of authors publishing a single article. This assumption implies that the theoretical beta coefficient of Lotka’s law is equal to 2. Using lotka function is possible to estimate the Beta coefficient of our bibliographic collection and assess, through a statistical test, the similarity of this empirical distribution with the theoretical one.
+
+```{r}
+L <- lotka(results)
+
+# Author Productivity. Empirical Distribution
+L$AuthorProd
+
+```
+The table L$AuthorProd shows the observed distribution of scientific productivity in our sample.
+
+
+```{r}
+# Beta coefficient estimate
+L$Beta
+```
+
+
+```{r}
+# Constant
+L$C
+```
+
+```{r}
+# Goodness of fit
+L$R2
+```
+
+```{r}
+# P-value of K-S two sample test
+L$p.value
+
+```
+
+The estimated Beta coefficient is 2.72 with a goodness of fit equal to 0.94. Kolmogorov-Smirnoff two sample test provides a p-value 0.003 that means there is  a significant difference between the observed and the theoretical Lotka distributions.
+
+## Comparison the two distributions using plot function:
+```{r}
+# Observed distribution
+Observed=L$AuthorProd[,3]
+
+# Theoretical distribution with Beta = 2
+Theoretical=10^(log10(L$C)-2*log10(L$AuthorProd[,1]))
+
+plot(L$AuthorProd[,1],Theoretical,type="l",col="red",ylim=c(0, 1), xlab="Articles",ylab="Freq. of Authors",main="Scientific Productivity")
+lines(L$AuthorProd[,1],Observed,col="blue")
+legend(x="topright",c("Theoretical (B=2)","Observed"),col=c("red","blue"),lty = c(1,1,1),cex=0.6,bty="n")
+```
+
+
+# Descriptive analysis of network graph characteristics
+
+## Country Scientific Collaboration
+
+```{r}
+# Create a country collaboration network
+
+pm2 <- metaTagExtraction(pm2, Field = "AU_CO", sep = ";")
+NetMatrix <- biblioNetwork(pm2, analysis = "collaboration", network = "countries", sep = ";")
+
+# Plot the network
+net=networkPlot(NetMatrix, n = dim(NetMatrix)[1], Title = "Country Collaboration", type = "circle", size=TRUE, remove.multiple=FALSE,labelsize=0.7,cluster="none")
+```
+
+### using code from Hanis for countries collaboration 
+
+```{r}
+#authors, universities, countries
+MT <- metaTagExtraction(pm2, Field = "AU_CO", sep = ";")
+country_collab <- biblioNetwork(MT, analysis = "collaboration",  network = "countries")
+summary(networkStat(country_collab))
+
+# Plot
+set.seed(123)
+ccPlot <- networkPlot(country_collab, n = 30, cluster = "none", #try "optimal"
+                      Title = "Countries collaboration", type = "sphere",
+                      size.cex = T)
+```
+
+
+### Co-citation references
+
+```{r}
+#authors, references, sources
+#ref_cc <- biblioNetwork(pm2, analysis = "co-citation", network = "references", sep = ";")
+
+#set.seed(123)
+#networkPlot(ref_cc, n = 30, cluster = "none", 
+            #Title = "Co-citation of references", type = "circle",
+            #size.cex = T)
+```
+
+
+## Keyword co-occurrences
+
+```{r}
+# Create keyword co-occurrences network
+
+NetMatrix <- biblioNetwork(pm2, analysis = "co-occurrences", network = "keywords", sep = ";")
+
+# Plot the network
+net=networkPlot(NetMatrix, normalize="association", weighted=T, n = 30, Title = "Keyword Co-occurrences", type = "fruchterman", size=T,edgesize = 5,labelsize=0.7)
+
+```
+
+# Co-Word Analysis: The conceptual structure of a field
+
+The aim of the co-word analysis is to map the conceptual structure of a framework using the word co-occurrences in a bibliographic collection. The analysis can be performed through dimensionality reduction techniques such as Multidimensional Scaling (MDS), Correspondence Analysis (CA) or Multiple Correspondence Analysis (MCA). We used the function conceptualStructure that performs a CA or MCA to draw a conceptual structure of the field and K-means clustering to identify clusters of documents which express common concepts. Results are plotted on a two-dimensional map. conceptualStructure includes natural language processing (NLP) routines (see the function termExtraction) to extract terms from titles and abstracts. In addition, it implements the Porter’s stemming algorithm to reduce inflected (or sometimes derived) words to their word stem, base or root form.
+
+```{r}
+# Conceptual Structure using keywords (method="CA")
+
+CS <- conceptualStructure(pm2,field="ID", method="CA", minDegree=4, clust=5, stemming=FALSE, labelsize=10, documents=10)
+```
+
+## Thematic map (Code from Hanis) ----
+
+```{r}
+
+
+Map <- thematicMap(pm2, field = "ID", #"ID","DE", "TI", "AB"
+                   minfreq = 3, stemming = FALSE, n.labels = 3, repel = T)
+plot(Map$map)
+
+# Further customisation
+th_map <- plot(Map$map + 
+                 theme_bw() + 
+                 theme(axis.line = element_blank(),
+                       axis.text.x = element_blank(),
+                       axis.text.y = element_blank(), 
+                       axis.ticks = element_blank(),
+                       legend.position = "none"))
+
+th_map$layers[[6]] <- NULL #remove logo, specific to this plot
+th_map
+```
+
+
+
+# ## 5) Trending keywords ----
+
+```{r}
+trend_kw <- fieldByYear(pm2, field = "ID", timespan = c(2010,2019),
+                        min.freq = 1, n.items = 5, graph = TRUE) 
+trend_kw$graph +
+  labs(title = "") +
+  theme_bw()
+
+```
+
+
+```{r}
+# Another way to plot trending keywords
+dat <- trend_kw$df_graph
+
+ggplot(dat, aes(year_med, freq)) + 
+  geom_point() +
+  ggrepel::geom_text_repel(aes(label = tolower(dat$item)), max.overlaps = 30) +
+  scale_x_continuous(breaks = seq(2010, 2019, 1)) +
+  theme_bw() +
+  xlab("Year") +
+  ylab("Frequency")
+```
+
+# Historical Direct Citation Network
+
+The historiographic map is a graph proposed by E. Garfield (2004) to represent a chronological network map of most relevant direct citations resulting from a bibliographic collection. The function generates a chronological direct citation network matrix which can be plotted using histPlot:
+
+```{r}
+# Create a historical citation network
+options(width=130)
+histResults <- histNetwork(pm2, min.citations = 1, sep = ";")
+```
+```{r}
+# Plot a historical co-citation network
+net <- histPlot(histResults, n=15, size = 10, labelsize=5)
+```
+
+
+
+
